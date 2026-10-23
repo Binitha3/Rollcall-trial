@@ -76,7 +76,6 @@ a { color: inherit; text-decoration: none; }
 .role-switch { display: flex; height: 34px; align-items: center; gap: 8px; padding: 0 10px; color: #426a55; border: 1px solid #dce7dc; border-radius: 7px; background: #f4f8f2; font-size: 10px; font-weight: 600; }
 .role-switch:hover { background: #eaf3e9; }
 .role-switch-icon { display: grid; place-items: center; }
-.profile-student-select { max-width: 140px; height: 32px; padding: 0 8px; color: #536258; border: 1px solid #e1e8df; border-radius: 7px; background: #fff; font-size: 9px; }
 .top-avatar { width: 30px; height: 30px; font-size: 9px; }
 .main-content { max-width: 1390px; margin: 0 auto; padding: 35px 42px 30px; }
 .welcome-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 25px; }
@@ -205,6 +204,10 @@ h1 { margin-bottom: 5px; font: 700 26px 'Manrope', sans-serif; letter-spacing: -
 .checkin-error { min-height: 15px; margin: 6px 0 0; color: #a84d40; font-size: 9px; }
 .student-security-note { display: flex; gap: 8px; margin-top: 17px; padding: 11px; color: #758178; border-radius: 7px; background: #f6f9f5; font-size: 9px; line-height: 1.5; }
 .student-security-note svg { flex: 0 0 auto; color: #709278; }
+.signed-in-student { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border: 1px solid #edf0ec; border-radius: 7px; background: #fbfcfa; }
+.signed-in-student strong, .signed-in-student small { display: block; }
+.signed-in-student strong { color: #39473e; font-size: 10px; font-weight: 600; }
+.signed-in-student small { margin-top: 3px; color: #8b958d; font-size: 8px; }
 .checkin-result { display: flex; align-items: center; gap: 11px; margin-top: 19px; padding: 14px; border-radius: 8px; }
 .result-success { color: #497854; background: #eff7ef; }
 .result-pending { color: #98763a; background: #faf5e9; }
@@ -285,6 +288,25 @@ h1 { margin-bottom: 5px; font: 700 26px 'Manrope', sans-serif; letter-spacing: -
 .target-progress { flex: 1; height: 7px; }
 .attendance-target strong { color: #4e6755; font-size: 9px; }
 .attendance-detail .attendance-alert { margin-top: 17px; }
+.app-error { margin: 10px 42px 0; padding: 9px 12px; color: #944c3e; border: 1px solid #f0d8d1; border-radius: 7px; background: #fff8f5; font-size: 10px; }
+.login-page { display: grid; min-height: 100vh; place-items: center; padding: 25px; background: #f6f7f4; }
+.login-card { width: min(100%, 410px); padding: 31px; border: 1px solid #e8ece6; border-radius: 13px; background: #fff; box-shadow: 0 12px 42px #293b2d0b; }
+.login-brand { margin-bottom: 34px; padding: 0; }
+.login-card > .eyebrow { margin-bottom: 8px; }
+.login-card h1 { margin-bottom: 6px; font-size: 25px; }
+.login-intro { margin: 0 0 20px; color: #818a83; font-size: 11px; }
+.login-form { display: grid; gap: 8px; }
+.login-form label { margin-top: 6px; color: #58665c; font-size: 10px; font-weight: 600; }
+.login-form input { height: 40px; padding: 0 11px; color: #303d34; border: 1px solid #e2e8e1; border-radius: 7px; outline: none; font-size: 11px; }
+.login-form input:focus { border-color: #76a184; box-shadow: 0 0 0 3px #e7f1e8; }
+.login-form .button { height: 41px; margin-top: 7px; }
+.login-form .button:disabled { cursor: wait; opacity: .7; }
+.login-error { min-height: 13px; margin: 1px 0; color: #a54e40; font-size: 9px; }
+.demo-credentials { display: grid; gap: 5px; margin-top: 20px; padding: 12px; border: 1px solid #e8eee6; border-radius: 7px; background: #f8faf7; font-size: 9px; }
+.demo-credentials strong { color: #506c57; font-size: 9px; }
+.demo-credentials > span { color: #35453a; font-weight: 700; }
+.demo-credentials small { color: #7e8980; line-height: 1.6; }
+.login-card > .demo-disclaimer { margin-top: 15px; line-height: 1.5; }
 
 @media (min-width: 1500px) {
   .main-content { padding-right: 60px; padding-left: 60px; }
@@ -318,6 +340,7 @@ h1 { margin-bottom: 5px; font: 700 26px 'Manrope', sans-serif; letter-spacing: -
   .today-label, .topbar-divider, .top-avatar { display: none; }
   .role-switch { height: 31px; padding: 0 8px; font-size: 9px; }
   .main-content { padding: 24px 15px; }
+  .app-error { margin-right: 15px; margin-left: 15px; }
   .welcome-row { align-items: flex-start; gap: 12px; }
   h1 { font-size: 22px; }
   .welcome-subtitle { max-width: 245px; font-size: 10px; line-height: 1.5; }

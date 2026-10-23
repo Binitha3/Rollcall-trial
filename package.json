@@ -3,14 +3,23 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build"
+    "dev": "concurrently -k \"npm:server\" \"npm:vite\"",
+    "server": "node server/index.js",
+    "vite": "vite",
+    "start": "npm run build && node server/index.js",
+    "build": "vite build",
+    "test": "node --test"
   },
   "dependencies": {
+    "express": "^5.1.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "vite": "^6.4.1"
   }
 }

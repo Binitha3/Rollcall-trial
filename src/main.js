@@ -1,21 +1,8 @@
 import QRCode from 'qrcode';
 import './style.css';
 
-const STORAGE_KEY = 'rollcall-demo-state';
-const CODE_INTERVAL = 30_000;
-
-const courses = [
-  { id: 'cs204', name: 'Data Structures', code: 'CS 204', room: 'Room 302', time: '10:30 AM' },
-  { id: 'ma102', name: 'Applied Mathematics', code: 'MA 102', room: 'Room 108', time: '12:00 PM' },
-  { id: 'ec110', name: 'Digital Electronics', code: 'EC 110', room: 'Lab 2', time: '2:00 PM' },
-];
-
-const students = [
-  { id: 'AIML2401', name: 'Aarav Mehta', initials: 'AM', color: 'lavender', attended: 36, missed: 4 },
-  { id: 'AIML2402', name: 'Ananya Rao', initials: 'AR', color: 'peach', attended: 28, missed: 12 },
-  { id: 'AIML2403', name: 'Dev Patel', initials: 'DP', color: 'mint', attended: 25, missed: 15 },
-  { id: 'AIML2404', name: 'Isha Nair', initials: 'IN', color: 'blue', attended: 30, missed: 10 },
-];
+let courses = [];
+let students = [];
 
 const attendanceThreshold = 75;
 const timetable = [
@@ -29,65 +16,51 @@ const timetable = [
   { time: '3:00 – 4:00', monday: 'Database Systems', tuesday: 'Machine Learning', wednesday: 'AI Lab', thursday: 'Database Systems', friday: 'Project / Tutorial' },
 ];
 
-function randomCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
-
-function createSession(seedDemoAttendance = false) {
-  const now = Date.now();
-  return {
-    id: `sess-${now}`,
-    courseId: courses[0].id,
-    startedAt: now,
-    code: randomCode(),
-    codeExpiresAt: now + CODE_INTERVAL,
-    attendance: seedDemoAttendance ? {
-      ST2401: { status: 'verified', checkedInAt: now - 5 * 60_000 },
-      ST2402: { status: 'pending', checkedInAt: now - 4 * 60_000 },
-      ST2403: { status: 'verified', checkedInAt: now - 3 * 60_000 },
-      ST2404: { status: 'pending', checkedInAt: now - 2 * 60_000 },
-      ST2405: { status: 'verified', checkedInAt: now - 60_000 },
-      ST2406: { status: 'pending', checkedInAt: now - 30_000 },
-      ST2407: { status: 'absent' },
-      ST2408: { status: 'absent' },
-    } : {},
-  };
-}
-
-function loadState() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && ['faculty', 'student'].includes(saved.role)) {
-      const previousStudentIds = ['ST2401', 'ST2402', 'ST2403', 'ST2404'];
-      if (saved.activeSession?.attendance) {
-        previousStudentIds.forEach((previousId, index) => {
-          const student = students[index];
-          if (!saved.activeSession.attendance[student.id] && saved.activeSession.attendance[previousId]) {
-            saved.activeSession.attendance[student.id] = saved.activeSession.attendance[previousId];
-          }
-          delete saved.activeSession.attendance[previousId];
-        });
-      }
-      return {
-        ...saved,
-        view: ['overview', 'timetable', 'attendance', 'notifications'].includes(saved.view) ? saved.view : 'overview',
-        selectedStudentId: students.some((student) => student.id === saved.selectedStudentId)
-          ? saved.selectedStudentId
-          : students[0].id,
-      };
-    }
-  } catch (error) {
-    console.warn('Could not read the saved demo session.', error);
-  }
-  return { role: 'faculty', view: 'overview', activeSession: createSession(true), selectedStudentId: students[0].id };
-}
-
-const state = loadState();
+const state = { user: null, role: null, view: 'overview', activeSession: null, connectionError: '' };
 let cameraStream = null;
 let countdownTimer = null;
+let codeRotationInProgress = false;
 
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+async function api(path, options = {}) {
+  let response;
+  try {
+    response = await fetch(`/api${path}`, {
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+      ...options,
+    });
+  } catch (error) {
+    throw new Error('Cannot reach the Rollcall server. Start the app with npm run dev and try again.');
+  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error ?? 'The request could not be completed.');
+  return body;
+}
+
+async function syncBootstrap() {
+  const data = await api('/bootstrap');
+  const previousSnapshot = JSON.stringify([state.user, students, courses, state.activeSession]);
+  state.user = data.user;
+  state.role = data.user.role;
+  state.activeSession = data.activeSession;
+  students = data.students.map((student, index) => ({
+    ...student,
+    initials: student.name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase(),
+    color: ['lavender', 'peach', 'mint', 'blue'][index % 4],
+  }));
+  courses = data.courses;
+  return previousSnapshot !== JSON.stringify([state.user, students, courses, state.activeSession]);
+}
+
+async function initialize() {
+  try {
+    await syncBootstrap();
+    state.connectionError = '';
+  } catch (error) {
+    if (error.message.startsWith('Cannot reach')) state.connectionError = error.message;
+    else if (!error.message.includes('Sign in') && !error.message.includes('session has expired')) state.connectionError = error.message;
+  }
+  render();
 }
 
 function escapeHtml(value) {
@@ -143,7 +116,7 @@ function getLowAttendanceStudents() {
 }
 
 function renderSidebar() {
-  const selectedStudent = students.find((student) => student.id === state.selectedStudentId) ?? students[0];
+  const selectedStudent = state.role === 'student' ? state.user : null;
   const lowAttendanceCount = state.role === 'student'
     ? Number(getAttendanceSummary(selectedStudent).percentage < attendanceThreshold)
     : getLowAttendanceStudents().length;
@@ -180,22 +153,61 @@ function renderSidebar() {
 }
 
 function renderHeader() {
-  const selectedStudentId = state.selectedStudentId;
   return `
     <header class="topbar">
       <div class="breadcrumb">Workspace <span>/</span> <strong>${state.view === 'overview' ? (state.role === 'faculty' ? 'Overview' : 'Student check-in') : state.view[0].toUpperCase() + state.view.slice(1)}</strong></div>
       <div class="topbar-actions">
         <span class="today-label">${new Intl.DateTimeFormat('en', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date())}</span>
         <span class="topbar-divider"></span>
-        <button class="role-switch" type="button" data-action="switch-role">
-          <span class="role-switch-icon">${icon(state.role === 'faculty' ? 'users' : 'book', 15)}</span>
-          <span>View as ${state.role === 'faculty' ? 'student' : 'faculty'}</span>
+        <button class="role-switch" type="button" data-action="logout">
+          <span class="role-switch-icon">${icon('users', 15)}</span>
+          <span>Sign out</span>
           ${icon('arrow', 15)}
         </button>
-        ${state.role === 'student' ? `<select class="profile-student-select" id="student-profile-select" aria-label="Select simulated student">${students.map((student) => `<option value="${student.id}" ${student.id === selectedStudentId ? 'selected' : ''}>${escapeHtml(student.name)}</option>`).join('')}</select>` : ''}
-        <span class="avatar avatar-faculty top-avatar">AR</span>
+        <span class="avatar avatar-faculty top-avatar">${escapeHtml(state.user.name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase())}</span>
       </div>
     </header>`;
+}
+
+function renderLogin() {
+  document.querySelector('#app').innerHTML = `
+    <main class="login-page">
+      <section class="login-card">
+        <a class="brand login-brand" href="#" aria-label="Rollcall home"><span class="brand-mark">${icon('check', 19)}</span><span>rollcall<span class="brand-period">.</span></span></a>
+        <p class="eyebrow">AIML ATTENDANCE PORTAL</p>
+        <h1>Welcome back</h1>
+        <p class="login-intro">Sign in with your demo faculty or student account.</p>
+        ${state.connectionError ? `<p class="login-error" role="alert">${escapeHtml(state.connectionError)}</p>` : ''}
+        <form id="login-form" class="login-form">
+          <label for="login-email">Email</label>
+          <input id="login-email" name="email" type="email" autocomplete="username" required placeholder="you@rollcall.demo" />
+          <label for="login-password">Password</label>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required placeholder="Enter password" />
+          <p class="login-error" id="login-error" role="alert"></p>
+          <button class="button button-dark" type="submit">Sign in ${icon('arrow', 15)}</button>
+        </form>
+        <div class="demo-credentials"><strong>Demo password</strong><span>Rollcall123!</span><small>Faculty: faculty@rollcall.demo<br />Students: aiml2401–aiml2404@rollcall.demo</small></div>
+        <p class="demo-disclaimer">Demo accounts only · Do not use these credentials for real data.</p>
+      </section>
+    </main>`;
+  document.querySelector('#login-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const error = document.querySelector('#login-error');
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    error.textContent = '';
+    try {
+      const form = new FormData(event.currentTarget);
+      await api('/auth/login', { method: 'POST', body: JSON.stringify({ email: form.get('email'), password: form.get('password') }) });
+      state.view = 'overview';
+      state.connectionError = '';
+      await syncBootstrap();
+      render();
+    } catch (loginError) {
+      error.textContent = loginError.message;
+      button.disabled = false;
+    }
+  });
 }
 
 function renderFaculty() {
@@ -290,7 +302,7 @@ function renderFaculty() {
           </div>
         </section>
       ` : renderNoSession()}
-      <p class="demo-disclaimer">Demo mode · Attendance is stored in this browser only. Use campus sign-in and a secure server before real use.</p>
+      <p class="demo-disclaimer">Demo mode · Attendance is saved to the local SQLite server. Use campus sign-in before real use.</p>
     </main>`;
 }
 
@@ -415,7 +427,7 @@ function renderNoSession() {
 function renderStudent() {
   const session = state.activeSession;
   const course = activeCourse();
-  const student = students.find((item) => item.id === state.selectedStudentId) ?? students[0];
+  const student = state.user;
   const status = session?.attendance[student.id]?.status ?? 'absent';
   const alreadyChecked = status === 'pending' || status === 'verified';
   if (state.view === 'timetable') return renderTimetablePage();
@@ -438,8 +450,7 @@ function renderStudent() {
             <h2>${escapeHtml(course.name)}</h2>
             <p class="student-course-meta">${escapeHtml(course.room)} <span class="bullet">·</span> ${escapeHtml(course.time)}</p>
             <div class="student-divider"></div>
-            <label class="field-label" for="student-select">Checking in as</label>
-            <select class="student-select" id="student-select">${students.map((item) => `<option value="${item.id}" ${item.id === student.id ? 'selected' : ''}>${escapeHtml(item.name)} · ${escapeHtml(item.id)}</option>`).join('')}</select>
+            <div class="signed-in-student"><span class="avatar avatar-${student.color}">${student.initials}</span><span><strong>${escapeHtml(student.name)}</strong><small>${escapeHtml(student.id)}</small></span></div>
             ${alreadyChecked ? `
               <div class="checkin-result ${status === 'verified' ? 'result-success' : 'result-pending'}">
                 <span class="result-icon">${icon(status === 'verified' ? 'check' : 'clock', 18)}</span>
@@ -479,7 +490,7 @@ function renderStudent() {
         </section>
       `}
       ${renderStudentAttendanceSummary(student)}
-      <p class="demo-disclaimer">Demo mode · Student identity is simulated. A real system needs verified campus accounts.</p>
+      <p class="demo-disclaimer">Demo mode · Attendance is saved to the local SQLite server. Use verified campus accounts before real use.</p>
     </main>`;
 }
 
@@ -540,11 +551,16 @@ function formatTime(timestamp) {
 
 function render() {
   stopCamera();
+  if (!state.user) {
+    renderLogin();
+    return;
+  }
   document.querySelector('#app').innerHTML = `
     <div class="app-shell">
       ${renderSidebar()}
       <div class="page">
         ${renderHeader()}
+        ${state.connectionError ? `<p class="app-error" id="app-error" role="alert">${escapeHtml(state.connectionError)}</p>` : ''}
         ${state.role === 'faculty' ? renderFaculty() : renderStudent()}
       </div>
     </div>`;
@@ -576,14 +592,25 @@ function updateCountdown() {
   if (!countdown || !state.activeSession) return;
   const secondsLeft = Math.max(0, Math.ceil((state.activeSession.codeExpiresAt - Date.now()) / 1000));
   countdown.textContent = `${secondsLeft}s`;
-  if (secondsLeft === 0) {
-    state.activeSession.code = randomCode();
-    state.activeSession.codeExpiresAt = Date.now() + CODE_INTERVAL;
-    saveState();
-    const code = document.querySelector('.one-time-code');
-    if (code) code.textContent = state.activeSession.code;
-    renderQrCode();
-    countdown.textContent = '30s';
+  if (secondsLeft === 0 && state.role === 'faculty' && !codeRotationInProgress) {
+    codeRotationInProgress = true;
+    api(`/sessions/${encodeURIComponent(state.activeSession.id)}/rotate`, { method: 'POST' })
+      .then(({ code, codeExpiresAt }) => {
+        if (!state.activeSession) return;
+        state.activeSession.code = code;
+        state.activeSession.codeExpiresAt = codeExpiresAt;
+        const codeElement = document.querySelector('.one-time-code');
+        if (codeElement) codeElement.textContent = code;
+        renderQrCode();
+        updateCountdown();
+      })
+      .catch((error) => {
+        state.connectionError = error.message;
+        render();
+      })
+      .finally(() => {
+        codeRotationInProgress = false;
+      });
   }
 }
 
@@ -596,81 +623,76 @@ function attachEventListeners() {
   document.querySelectorAll('[data-action]').forEach((button) => {
     button.addEventListener('click', () => handleAction(button.dataset.action, button.dataset.student, button.dataset.view));
   });
-  document.querySelector('#student-select')?.addEventListener('change', (event) => {
-    state.selectedStudentId = event.target.value;
-    saveState();
-    render();
-  });
-  document.querySelector('#student-profile-select')?.addEventListener('change', (event) => {
-    state.selectedStudentId = event.target.value;
-    saveState();
-    render();
-  });
   document.querySelector('#checkin-form')?.addEventListener('submit', (event) => {
     event.preventDefault();
     submitCheckIn(document.querySelector('#checkin-code').value.trim());
   });
 }
 
-function handleAction(action, studentId, view) {
-  if (action === 'switch-role') {
-    state.role = state.role === 'faculty' ? 'student' : 'faculty';
-    state.view = 'overview';
-    saveState();
-    render();
-  } else if (action === 'navigate') {
-    state.view = view;
-    saveState();
-    render();
-  } else if (action === 'start-session') {
-    const selectedCourse = document.querySelector('#course-select')?.value ?? courses[0].id;
-    state.activeSession = createSession();
-    state.activeSession.courseId = selectedCourse;
-    saveState();
-    render();
-  } else if (action === 'end-session') {
-    if (window.confirm('End this attendance session? Students will no longer be able to check in.')) {
+async function handleAction(action, studentId, view) {
+  try {
+    if (action === 'logout') {
+      await api('/auth/logout', { method: 'POST' });
+      state.user = null;
+      state.role = null;
       state.activeSession = null;
-      saveState();
+      state.view = 'overview';
+      state.connectionError = '';
       render();
-    }
-  } else if (action === 'verify') {
-    if (state.activeSession?.attendance[studentId]?.status === 'pending') {
-      state.activeSession.attendance[studentId].status = 'verified';
-      state.activeSession.attendance[studentId].verifiedAt = Date.now();
-      saveState();
+    } else if (action === 'navigate') {
+      state.view = view;
       render();
+    } else if (action === 'start-session') {
+      const selectedCourse = document.querySelector('#course-select')?.value ?? courses[0].id;
+      await api('/sessions', { method: 'POST', body: JSON.stringify({ courseId: selectedCourse }) });
+      state.view = 'overview';
+      await syncBootstrap();
+      render();
+    } else if (action === 'end-session') {
+      if (window.confirm('End this attendance session? Students will no longer be able to check in.')) {
+        await api(`/sessions/${encodeURIComponent(state.activeSession.id)}/end`, { method: 'POST' });
+        await syncBootstrap();
+        render();
+      }
+    } else if (action === 'verify') {
+      if (state.activeSession?.attendance[studentId]?.status === 'pending') {
+        await api(`/sessions/${encodeURIComponent(state.activeSession.id)}/attendance/${encodeURIComponent(studentId)}/verify`, { method: 'POST' });
+        await syncBootstrap();
+        render();
+      }
+    } else if (action === 'open-scanner') {
+      openScanner();
+    } else if (action === 'close-scanner') {
+      stopCamera();
+      const panel = document.querySelector('#scanner-panel');
+      if (panel) panel.hidden = true;
+    } else if (action === 'download-csv') {
+      exportCsv();
     }
-  } else if (action === 'open-scanner') {
-    openScanner();
-  } else if (action === 'close-scanner') {
-    stopCamera();
-    const panel = document.querySelector('#scanner-panel');
-    if (panel) panel.hidden = true;
-  } else if (action === 'download-csv') {
-    exportCsv();
+  } catch (error) {
+    state.connectionError = error.message;
+    render();
   }
 }
 
-function submitCheckIn(code) {
+async function submitCheckIn(code) {
   const error = document.querySelector('#checkin-error');
   const session = state.activeSession;
   if (!session) {
     error.textContent = 'There is no active class check-in.';
     return;
   }
-  if (!/^\d{6}$/.test(code) || code !== session.code || Date.now() >= session.codeExpiresAt) {
-    error.textContent = 'That code has expired or is incorrect. Ask your faculty for the current code.';
-    return;
+  try {
+    await api(`/sessions/${encodeURIComponent(session.id)}/check-in`, {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    await syncBootstrap();
+    render();
+  } catch (checkInError) {
+    const currentError = document.querySelector('#checkin-error');
+    if (currentError) currentError.textContent = checkInError.message;
   }
-  const existing = session.attendance[state.selectedStudentId];
-  if (existing?.status === 'pending' || existing?.status === 'verified') {
-    error.textContent = 'You have already checked in for this class.';
-    return;
-  }
-  session.attendance[state.selectedStudentId] = { status: 'pending', checkedInAt: Date.now() };
-  saveState();
-  render();
 }
 
 function parseQrPayload(payload) {
@@ -704,7 +726,7 @@ async function openScanner() {
           if (code) {
             stopCamera();
             panel.hidden = true;
-            submitCheckIn(code);
+            await submitCheckIn(code);
             return;
           }
           message.textContent = 'This QR code is not for the active class. Try again.';
@@ -754,3 +776,18 @@ function exportCsv() {
 window.addEventListener('beforeunload', stopCamera);
 render();
 startCountdown();
+initialize();
+window.setInterval(async () => {
+  if (!state.user || document.visibilityState === 'hidden' || cameraStream) return;
+  if (document.activeElement?.matches('input, textarea, select')) return;
+  try {
+    const changed = await syncBootstrap();
+    if (changed) render();
+  } catch (error) {
+    if (error.message.includes('Sign in') || error.message.includes('session has expired')) {
+      state.user = null;
+      state.role = null;
+      render();
+    }
+  }
+}, 3000);
